@@ -20,7 +20,7 @@ export default function App() {
 
   if (show.state === "analyzing") return <AnalyzerScreen />;
   if (show.state === "analysisComplete") return <AnalysisCompleteScreen estimatedMoves={show.estimatedMoves} onExecute={() => void controller.execute()} />;
-  if (["executing", "confused", "desperate"].includes(show.state)) return <ExecuteScreen state={show.state} moveCount={show.moveCount} estimatedMoves={show.estimatedMoves} currentMove={show.currentMove} />;
+  if (["executing", "confused", "desperate"].includes(show.state)) return <ExecuteScreen state={show.state} moveCount={show.moveCount} estimatedMoves={show.estimatedMoves} />;
   if (show.state === "giveUp") return <GiveUpScreen error={show.error} moveCount={show.moveCount} onReset={() => void controller.reset()} />;
   return <StandbyScreen connected={show.connected} mockMode={mockMode} error={show.error} onConnect={() => void controller.connect()} onAnalyze={() => controller.analyze()} />;
 }
