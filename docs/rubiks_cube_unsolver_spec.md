@@ -364,7 +364,7 @@ OPTIMAL SOLUTION FOUND
 18 MOVES
 
 CONFIDENCE
-99.97%
+100%
 
 [ EXECUTE SOLUTION ]
 ```
@@ -516,15 +516,25 @@ EXECUTING OPTIMAL SOLUTION
 
 MOVE 4 / 18
 
-R
-
 SOLUTION PROGRESS
 ████████░░░░░░░░░░
 ```
 
 のように表示する。
 
-現在のCubeMoveを大きく表示する。
+画面は以下の2モジュールを上下に配置する。
+
+1. 上段：`SEQUENCE MONITOR`
+   - 現在の操作回数
+   - 予定手数
+   - 直近の操作列
+   - モーター診断情報
+2. 下段：`SOLUTION PROGRESS`
+   - 実際の進捗率
+   - Progress bar
+   - パス整合性などのダミー診断情報
+
+中央に現在のCubeMoveを大きく表示する専用モジュールは設けない。
 
 ---
 
@@ -545,6 +555,24 @@ MOVE 21 / 18
 これはエラーではない。
 
 むしろ積極的に表示する。
+
+`SOLUTION PROGRESS` の進捗率は、予定手数に対する実際の操作回数から計算し、100%を超えても制限しない。
+
+Progress barは100%で通常の表示領域全幅に到達し、それ以降はモジュール境界を越えて画面右方向へ伸び続ける。画面外へ伸びた部分はビューポート端で切り、横スクロールは発生させない。
+
+100%超過分のバーの伸びは演出上の倍率を適用する。初期値は1.5倍とする。
+
+例：
+
+```text
+実際の進捗率 100% → 表示幅 100%
+実際の進捗率 120% → 表示幅 130%
+実際の進捗率 150% → 表示幅 175%
+```
+
+画面に表示する数値は増幅後の値ではなく、実際の進捗率を使用する。
+
+予定手数を超えたときは画面上部に警告を表示する。警告用の領域は実行開始時から固定高で確保し、警告の表示前後で下のモジュールが移動しないようにする。
 
 その付近から、
 
@@ -969,6 +997,8 @@ export const showConfig = {
 
   moveTimeoutMs: 5000,
 
+  progressOverflowMultiplier: 1.5,
+
   audioProbability: {
     executing: 0,
     confused: 0.15,
@@ -1061,11 +1091,13 @@ console warningのみ。
 10. MockCubeControllerからMOVE_DONEが返る
 11. 次のMoveへ進む
 12. `Move 19 / 18` のように予定数を超える
-13. RE-CALCULATING系演出が出る
-14. 途中から困った音声が再生される
-15. maxMovesまで続く
-16. 最後に `FAILED`
-17. RESETでStandbyへ戻る
+13. 進捗バーが100%を超えて画面右方向へ伸び続ける
+14. 警告表示時に実行モジュールの位置がずれない
+15. RE-CALCULATING系演出が出る
+16. 途中から困った音声が再生される
+17. maxMovesまで続く
+18. 最後に `FAILED`
+19. RESETでStandbyへ戻る
 
 ---
 
