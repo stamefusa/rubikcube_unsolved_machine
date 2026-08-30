@@ -1,102 +1,267 @@
 import { AudioManager } from "../audio/AudioManager";
 import { showConfig } from "../config/showConfig";
-import type { CubeMove } from "../cube/CubeMove";
-import { MoveGenerator } from "../cube/MoveGenerator";
-import type { CubeController } from "../serial/CubeController";
+import { formatOperation } from "../operations/CubeOperation";
+import { OperationGenerator } from "../operations/OperationGenerator";
+import type { CubeController, CubeControllerStatus } from "../serial/CubeController";
 import type { ShowSnapshot, ShowState } from "./showState";
 
 export class ShowController {
-  private snapshot: ShowSnapshot = { state: "standby", connected: false, estimatedMoves: 18, moveCount: 0, currentMove: null, error: null };
+  private snapshot: ShowSnapshot;
   private listeners = new Set<() => void>();
   private analyzerTimer: number | null = null;
-  private moveTimer: number | null = null;
   private session = 0;
+  private handlingError = false;
+  private connecting = false;
 
-  constructor(private cube: CubeController, private moves: MoveGenerator, private audio: AudioManager, private mockMode: boolean) {
-    cube.onMoveDone((move) => this.handleMoveDone(move));
+  constructor(
+    private cube: CubeController,
+    private operations: Pick<OperationGenerator, "nextOperation" | "reset">,
+    private audio: Pick<AudioManager, "maybePlay" | "play" | "stop">,
+  ) {
+    this.snapshot = {
+      state: "preDemo",
+      connected: cube.isConnected(),
+      estimatedMoves: 18,
+      moveCount: 0,
+      currentOperation: null,
+      error: null,
+      recovering: false,
+    };
+    cube.onOperationStart((operation) => {
+      console.info(`[OPERATION] started ${operation.type} ${formatOperation(operation)}`);
+    });
     cube.onError((error) => void this.handleError(error));
   }
 
   getSnapshot = () => this.snapshot;
-  subscribe = (listener: () => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
 
   async connect() {
-    try { await this.cube.connect(); this.patch({ connected: true, error: null }); }
-    catch (error) { this.patch({ error: this.message(error), connected: false }); }
+    if (this.connecting || this.cube.isConnected()) return;
+    this.connecting = true;
+    try {
+      await this.cube.connect();
+      const status = await this.cube.getStatus();
+      this.patch({
+        state: this.stateForStatus(status),
+        connected: true,
+        error: null,
+        recovering: false,
+      });
+    } catch (error) {
+      if (this.cube.isConnected()) await this.handleError(this.asError(error));
+      else this.patch({ error: this.message(error), connected: false, state: "preDemo" });
+    } finally {
+      this.connecting = false;
+    }
   }
 
-  async disconnect() { await this.cube.disconnect(); this.patch({ connected: false }); }
+  async disconnect() {
+    this.session += 1;
+    this.clearTimers();
+    this.audio.stop();
+    await this.cube.disconnect();
+    this.patch({ state: "preDemo", connected: false, currentOperation: null, recovering: false });
+  }
+
+  async startDemo() {
+    if (this.snapshot.state !== "preDemo" || !this.cube.isConnected()) return;
+    const run = ++this.session;
+    this.operations.reset();
+    this.patch({
+      state: "startingDemo",
+      moveCount: 0,
+      currentOperation: null,
+      error: null,
+      recovering: false,
+    });
+    try {
+      await this.cube.startDemo();
+      if (run !== this.session) return;
+      this.setState("standby");
+    } catch (error) {
+      if (run === this.session) await this.handleError(this.asError(error));
+    }
+  }
 
   analyze() {
-    if (!this.mockMode && !this.cube.isConnected()) return;
+    if (this.snapshot.state !== "standby" || !this.cube.isConnected()) return;
     this.clearTimers();
-    const estimatedMoves = Math.floor(Math.random() * (showConfig.estimatedMoves.max - showConfig.estimatedMoves.min + 1)) + showConfig.estimatedMoves.min;
-    this.patch({ state: "analyzing", estimatedMoves, moveCount: 0, currentMove: null, error: null });
-    this.analyzerTimer = window.setTimeout(() => this.setState("analysisComplete"), showConfig.analyzerDurationMs);
+    const estimatedMoves = Math.floor(
+      Math.random() * (showConfig.estimatedMoves.max - showConfig.estimatedMoves.min + 1),
+    ) + showConfig.estimatedMoves.min;
+    this.patch({
+      state: "analyzing",
+      estimatedMoves,
+      moveCount: 0,
+      currentOperation: null,
+      error: null,
+      recovering: false,
+    });
+    this.analyzerTimer = window.setTimeout(
+      () => this.setState("analysisComplete"),
+      showConfig.analyzerDurationMs,
+    );
   }
 
   async execute() {
     if (this.snapshot.state !== "analysisComplete") return;
     if (!this.cube.isConnected()) {
-      if (this.mockMode) await this.cube.connect();
-      else return void this.handleError(new Error("SERIAL CONNECTION LOST"));
+      await this.handleError(new Error("SERIAL CONNECTION LOST"));
+      return;
     }
-    this.session += 1;
+    const run = ++this.session;
     this.setState("executing");
-    await this.sendNext(this.session);
+    await this.runOperations(run);
   }
 
   async reset() {
-    this.session += 1; this.clearTimers(); this.audio.stop(); this.moves.reset();
-    try { await this.cube.stop(); } catch { /* reset should always remain available */ }
-    this.patch({ state: "standby", moveCount: 0, currentMove: null, error: null, connected: this.cube.isConnected() });
-  }
+    if (this.handlingError) return;
+    this.session += 1;
+    this.clearTimers();
+    this.audio.stop();
+    this.operations.reset();
 
-  dispose() { this.session += 1; this.clearTimers(); this.audio.stop(); }
+    if (!this.cube.isConnected()) {
+      this.patch({
+        state: "preDemo",
+        connected: false,
+        moveCount: 0,
+        currentOperation: null,
+        error: null,
+        recovering: false,
+      });
+      return;
+    }
 
-  private async sendNext(run: number) {
-    if (run !== this.session || this.snapshot.moveCount >= showConfig.maxMoves) return void this.giveUp();
-    const move = this.moves.next();
-    const nextCount = this.snapshot.moveCount + 1;
-    let state: ShowState = "executing";
-    if (nextCount >= showConfig.phases.desperateStart) state = "desperate";
-    else if (nextCount >= showConfig.phases.confusedStart) state = "confused";
-    this.patch({ state, currentMove: move, moveCount: nextCount });
-    console.info(`[MOVE] count=${nextCount}`);
-    this.audio.maybePlay(nextCount);
     try {
-      await this.cube.sendMove(move);
-      this.moveTimer = window.setTimeout(() => void this.handleError(new Error("MOTOR RESPONSE TIMEOUT")), showConfig.moveTimeoutMs);
-    } catch (error) { await this.handleError(error instanceof Error ? error : new Error(String(error))); }
+      await this.cube.stop();
+      const status = await this.cube.getStatus();
+      this.patch({
+        state: this.stateForStatus(status),
+        connected: this.cube.isConnected(),
+        moveCount: 0,
+        currentOperation: null,
+        error: null,
+        recovering: false,
+      });
+    } catch (error) {
+      this.patch({ state: "error", error: this.message(error), connected: this.cube.isConnected(), recovering: false });
+    }
   }
 
-  private handleMoveDone(received: CubeMove) {
-    const expected = this.snapshot.currentMove;
-    if (!expected || received.face !== expected.face || received.direction !== expected.direction) return;
-    if (this.moveTimer) clearTimeout(this.moveTimer);
-    this.moveTimer = null;
-    if (this.snapshot.moveCount >= showConfig.maxMoves) void this.giveUp();
-    else void this.sendNext(this.session);
+  dispose() {
+    this.session += 1;
+    this.clearTimers();
+    this.audio.stop();
   }
 
-  private async giveUp() {
-    this.clearTimers(); this.setState("giveUp");
-    await this.cube.stop().catch(() => undefined);
+  private async runOperations(run: number) {
+    while (run === this.session && this.snapshot.moveCount < showConfig.maxOperations) {
+      const operation = this.operations.nextOperation();
+      const operationNumber = this.snapshot.moveCount + 1;
+      this.patch({
+        state: this.phaseFor(operationNumber),
+        currentOperation: operation,
+      });
+      console.info(`[OPERATION] ${operation.type} ${formatOperation(operation)}`);
+
+      try {
+        await this.cube.executeOperation(operation);
+      } catch (error) {
+        if (run === this.session) await this.handleError(this.asError(error));
+        return;
+      }
+      if (run !== this.session) return;
+
+      this.patch({ moveCount: operationNumber });
+      console.info(`[OPERATION] completed count=${operationNumber}`);
+      this.audio.maybePlay(operationNumber);
+    }
+
+    if (run === this.session) await this.giveUp(run);
+  }
+
+  private async giveUp(run: number) {
+    this.clearTimers();
+    this.patch({ state: "giveUp", currentOperation: null });
+    this.audio.stop();
     await this.audio.play("murida");
+    if (run !== this.session) return;
+
+    this.setState("endingDemo");
+    try {
+      await this.cube.endDemo();
+      if (run !== this.session) return;
+      this.operations.reset();
+      this.patch({
+        state: "preDemo",
+        moveCount: 0,
+        currentOperation: null,
+        error: null,
+        connected: this.cube.isConnected(),
+        recovering: false,
+      });
+    } catch (error) {
+      if (run === this.session) await this.handleError(this.asError(error));
+    }
   }
 
   private async handleError(error: Error) {
-    this.session += 1; this.clearTimers();
-    try { await this.cube.stop(); } catch { /* connection may already be gone */ }
-    this.patch({ state: "giveUp", error: this.message(error), connected: this.cube.isConnected() });
+    if (this.handlingError) return;
+    this.handlingError = true;
+    this.session += 1;
+    this.clearTimers();
+    this.audio.stop();
+    let errorMessage = this.message(error);
+    this.patch({ state: "error", error: errorMessage, connected: this.cube.isConnected(), recovering: true });
+
+    if (this.cube.isConnected()) {
+      try {
+        await this.cube.stop();
+      } catch (stopError) {
+        errorMessage = `${errorMessage} / ${this.message(stopError)}`;
+      }
+    }
+    this.patch({ state: "error", error: errorMessage, connected: this.cube.isConnected(), recovering: false });
+    this.handlingError = false;
   }
 
-  private setState(state: ShowState) { this.patch({ state }); }
+  private stateForStatus(status: CubeControllerStatus): ShowState {
+    if (status === "idle") return "preDemo";
+    if (status === "ready") return "standby";
+    throw new Error(status === "busy" ? "ARDUINO BUSY" : "ARDUINO ERROR STATE");
+  }
+
+  private phaseFor(operationNumber: number): ShowState {
+    if (operationNumber >= showConfig.phases.desperateStart) return "desperate";
+    if (operationNumber >= showConfig.phases.confusedStart) return "confused";
+    return "executing";
+  }
+
+  private setState(state: ShowState) {
+    this.patch({ state });
+  }
+
   private patch(next: Partial<ShowSnapshot>) {
     this.snapshot = { ...this.snapshot, ...next };
     if (next.state) console.info(`[SHOW] state=${next.state}`);
     this.listeners.forEach((listener) => listener());
   }
-  private clearTimers() { if (this.analyzerTimer) clearTimeout(this.analyzerTimer); if (this.moveTimer) clearTimeout(this.moveTimer); this.analyzerTimer = this.moveTimer = null; }
-  private message(error: unknown) { return error instanceof Error ? error.message.toUpperCase() : String(error).toUpperCase(); }
+
+  private clearTimers() {
+    if (this.analyzerTimer) clearTimeout(this.analyzerTimer);
+    this.analyzerTimer = null;
+  }
+
+  private message(error: unknown) {
+    return this.asError(error).message.toUpperCase();
+  }
+
+  private asError(error: unknown) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
 }

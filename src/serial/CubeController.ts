@@ -1,12 +1,17 @@
-import type { CubeMove } from "../cube/CubeMove";
+import type { CubeOperation } from "../operations/CubeOperation";
+
+export type CubeControllerStatus = "idle" | "ready" | "busy" | "error";
 
 export interface CubeController {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   isConnected(): boolean;
-  sendMove(move: CubeMove): Promise<void>;
+  isBusy(): boolean;
+  startDemo(): Promise<void>;
+  executeOperation(operation: CubeOperation): Promise<void>;
+  endDemo(): Promise<void>;
   stop(): Promise<void>;
-  onMoveStart(callback: (move: CubeMove) => void): void;
-  onMoveDone(callback: (move: CubeMove) => void): void;
+  getStatus(): Promise<CubeControllerStatus>;
+  onOperationStart(callback: (operation: CubeOperation) => void): void;
   onError(callback: (error: Error) => void): void;
 }

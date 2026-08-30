@@ -1,10 +1,19 @@
 export const showConfig = {
   analyzerDurationMs: 7000,
   estimatedMoves: { min: 15, max: 25 },
-  maxMoves: 35,
+  maxOperations: 35,
+  operationTimeoutMs: 15000,
+  connectionTimeoutMs: 15000,
+  pingRetryMs: 500,
+  wholeRotationProbability: 0.1,
   phases: { confusedStart: 7, troubledStart: 15, desperateStart: 25 },
-  moveTimeoutMs: 5000,
   progressOverflowMultiplier: 1.5,
-  mock: { startDelayMs: 280, doneDelayMs: 720 },
+  mock: {
+    startDelayMs: 120,
+    startDemoDurationMs: 450,
+    faceTurnDurationMs: 1000,
+    wholeRotationDurationMs: 1500,
+    endDemoDurationMs: 450,
+  },
   audioProbability: { executing: 0, confused: 0.15, troubled: 0.25, desperate: 0.4 },
 } as const;

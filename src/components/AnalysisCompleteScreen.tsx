@@ -14,7 +14,7 @@ export function AnalysisCompleteScreen({ estimatedMoves, onExecute }: Props) {
           <div><span>CONFIDENCE INDEX</span><b>100</b><small>%</small></div>
           <div><span>PATH INTEGRITY</span><b>100</b><small>%</small></div>
         </div>
-        <button className="primary-button execute-button" onClick={onExecute}><span>03</span> EXECUTE SOLUTION</button>
+        <button className="primary-button execute-button" onClick={onExecute}><span>04</span> EXECUTE SOLUTION</button>
       </section>
     </main>
   );

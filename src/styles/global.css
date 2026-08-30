@@ -24,6 +24,7 @@ button { font: inherit; }
 .primary-button::after { content: "→"; position: absolute; right: 20px; color: var(--cyan); }
 .primary-button span { color: var(--cyan); margin-right: 22px; font-size: 10px; }
 .primary-button:hover { background: rgba(66,245,227,.15); box-shadow: inset 0 0 28px rgba(66,245,227,.15), 0 0 18px rgba(66,245,227,.12); transform: translateY(-2px); }
+.primary-button:disabled { cursor: wait; opacity: .55; transform: none; }
 .progress-label { display: flex; justify-content: space-between; color: #7fa7a3; font-size: 9px; letter-spacing: .15em; margin-bottom: 8px; }
 .progress-track { height: 4px; background: rgba(67, 143, 137, .18); overflow: hidden; position: relative; }
 .progress-track > span { display: block; height: 100%; background: var(--cyan); box-shadow: 0 0 12px var(--cyan); transition: width .12s linear; position: relative; z-index: 2; }
