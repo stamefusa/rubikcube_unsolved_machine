@@ -107,6 +107,35 @@ export class ShowController {
     );
   }
 
+  async cancelDemo() {
+    if (this.snapshot.state !== "standby" || !this.cube.isConnected()) return;
+    const run = ++this.session;
+    this.clearTimers();
+    this.audio.stop();
+    this.patch({
+      state: "cancelingDemo",
+      currentOperation: null,
+      error: null,
+      recovering: false,
+    });
+
+    try {
+      await this.cube.endDemo();
+      if (run !== this.session) return;
+      this.operations.reset();
+      this.patch({
+        state: "preDemo",
+        moveCount: 0,
+        currentOperation: null,
+        error: null,
+        connected: this.cube.isConnected(),
+        recovering: false,
+      });
+    } catch (error) {
+      if (run === this.session) await this.handleError(this.asError(error));
+    }
+  }
+
   async execute() {
     if (this.snapshot.state !== "analysisComplete") return;
     if (!this.cube.isConnected()) {

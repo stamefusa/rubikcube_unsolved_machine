@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ConnectionStatus } from "./ConnectionStatus";
 import type { ShowState } from "../show/showState";
 
@@ -9,9 +10,11 @@ interface Props {
   onConnect: () => void;
   onStartDemo: () => void;
   onAnalyze: () => void;
+  onCancelDemo: () => void;
 }
 
-export function StandbyScreen({ state, connected, mockMode, error, onConnect, onStartDemo, onAnalyze }: Props) {
+export function StandbyScreen({ state, connected, mockMode, error, onConnect, onStartDemo, onAnalyze, onCancelDemo }: Props) {
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
   const deviceConnected = connected || mockMode;
   const action = !deviceConnected
     ? { number: "01", label: "CONNECT DEVICE", onClick: onConnect, disabled: false }
@@ -19,7 +22,17 @@ export function StandbyScreen({ state, connected, mockMode, error, onConnect, on
       ? { number: "02", label: "START DEMO", onClick: onStartDemo, disabled: false }
       : state === "startingDemo"
         ? { number: "02", label: "ENGAGING CUBE", onClick: onStartDemo, disabled: true }
+        : state === "cancelingDemo"
+          ? { number: "--", label: "RELEASING CUBE", onClick: onCancelDemo, disabled: true }
         : { number: "03", label: "INITIATE ANALYSIS", onClick: onAnalyze, disabled: false };
+  const handleCancel = () => {
+    if (!confirmingCancel) {
+      setConfirmingCancel(true);
+      return;
+    }
+    setConfirmingCancel(false);
+    onCancelDemo();
+  };
   return (
     <main className="screen standby-screen">
       <div className="corner-mark top-left" /><div className="corner-mark bottom-right" />
@@ -38,6 +51,16 @@ export function StandbyScreen({ state, connected, mockMode, error, onConnect, on
         >
           <span>{action.number}</span> {action.label}
         </button>
+        {state === "standby" && (
+          <button
+            className={`setup-cancel-button ${confirmingCancel ? "is-confirming" : ""}`}
+            onClick={handleCancel}
+            aria-pressed={confirmingCancel}
+          >
+            <span>{confirmingCancel ? "!" : "×"}</span>
+            {confirmingCancel ? "CONFIRM RELEASE CUBE" : "CANCEL DEMO"}
+          </button>
+        )}
         <div className="microcopy">PROTOCOL: {mockMode ? "VIRTUAL / MOCK" : "SERIAL / 115200"} · CORE BUILD 26.8</div>
       </section>
     </main>

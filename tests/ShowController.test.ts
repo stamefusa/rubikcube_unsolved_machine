@@ -10,6 +10,7 @@ class FakeCubeController implements CubeController {
   operations: CubeOperation[] = [];
   commands: string[] = [];
   operationError: Error | null = null;
+  endDemoWait: Promise<void> | null = null;
   private startCallback = (_operation: CubeOperation) => {};
   private errorCallback = (_error: Error) => {};
 
@@ -24,7 +25,11 @@ class FakeCubeController implements CubeController {
     if (this.operationError) throw this.operationError;
     this.operations.push(operation);
   }
-  async endDemo() { this.commands.push("DEMO_END"); this.status = "idle"; }
+  async endDemo() {
+    this.commands.push("DEMO_END");
+    if (this.endDemoWait) await this.endDemoWait;
+    this.status = "idle";
+  }
   async stop() { this.commands.push("STOP"); }
   async getStatus() { return this.status; }
   onOperationStart(callback: (operation: CubeOperation) => void) { this.startCallback = callback; }
@@ -76,6 +81,30 @@ describe("ShowController", () => {
     expect(cube.operations).toHaveLength(showConfig.maxOperations);
     expect(cube.commands.at(-1)).toBe("DEMO_END");
     expect(show.getSnapshot().state).toBe("preDemo");
+    expect(cube.status).toBe("idle");
+  });
+
+  it("cancels only from standby and returns to pre-demo after releasing the cube", async () => {
+    const cube = new FakeCubeController();
+    const show = new ShowController(cube, generator, audio);
+
+    await show.cancelDemo();
+    expect(cube.commands).toEqual([]);
+
+    await show.startDemo();
+    let releaseEndDemo!: () => void;
+    cube.endDemoWait = new Promise<void>((resolve) => { releaseEndDemo = resolve; });
+    const cancellation = show.cancelDemo();
+
+    expect(show.getSnapshot().state).toBe("cancelingDemo");
+    expect(cube.commands).toEqual(["DEMO_START", "DEMO_END"]);
+    await show.cancelDemo();
+    expect(cube.commands).toEqual(["DEMO_START", "DEMO_END"]);
+
+    releaseEndDemo();
+    await cancellation;
+    expect(show.getSnapshot().state).toBe("preDemo");
+    expect(show.getSnapshot().connected).toBe(true);
     expect(cube.status).toBe("idle");
   });
 

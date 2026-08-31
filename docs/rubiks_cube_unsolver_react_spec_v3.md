@@ -200,6 +200,7 @@ type ShowState =
   | "preDemo"
   | "startingDemo"
   | "standby"
+  | "cancelingDemo"
   | "analyzing"
   | "analysisComplete"
   | "executing"
@@ -224,6 +225,8 @@ Arduinoは `IDLE_RELEASED`。
 
 Arduinoは `HOLD_ALL / READY` で、ANALYZEを開始できる。
 
+キューブ位置が不適切な場合に限り、画面内の2段階確認から`DEMO_END`を送り、把持解除後に`preDemo`へ戻ることができる。
+
 ---
 
 ## 8. 基本フロー
@@ -245,8 +248,8 @@ DEMO_START_DONE を待つ
 Arduino: HOLD_ALL / READY
   ↓
 STANDBY
-  ↓
-ANALYZE
+  ├─ 位置が不適切: CANCEL DEMO → 確認 → DEMO_END → PRE-DEMO
+  └─ 位置が適切: ANALYZE
   ↓
 FAKE ANALYZING
   ↓
@@ -474,21 +477,21 @@ CubeOperation
        ↓
 CubeController.executeOperation()
        ↓
-MOVE / ROTATE
+MOVE / THINK / ROTATE
        ↓
 Arduino
        ↓
-MOVE_DONE / ROTATE_DONE
+MOVE_DONE / THINK_DONE / ROTATE_DONE
        ↓
 Promise resolve
        ↓
 次のOperation
 ```
 
-### デモ終了
+### デモ終了・セットアップ中止
 
 ```text
-GIVE UP
+GIVE UP または STANDBYでの中止確認
        ↓
 DEMO_END
        ↓
@@ -607,6 +610,16 @@ await cubeController.startDemo();
 を実行する。
 
 成功後に `standby` へ遷移する。
+
+### セットアップ中止
+
+`standby`画面で`CANCEL DEMO`を押すと、同じ場所を`CONFIRM RELEASE CUBE`へ切り替える。確認後のみ、
+
+```ts
+await cubeController.endDemo();
+```
+
+を実行する。処理中は`cancelingDemo`として追加操作を無効化し、成功後は接続を維持したまま`preDemo`へ戻る。
 
 ### 実行ループ
 
@@ -944,7 +957,7 @@ Arduino側が安全なHOLD状態へ移行する責任を持つ。
 
 STOPによってキューブを落下させてはならない。
 
-キューブを意図的に落とすのは正常なGive Upフローから送信される `DEMO_END` のみ。
+キューブを意図的に落とすのは、正常なGive Upフローまたは`standby`で確認済みのセットアップ中止から送信される `DEMO_END` のみ。
 
 ---
 
@@ -1082,21 +1095,22 @@ export const showConfig = {
 2. ユーザーが明示的に `START DEMO` を押すまで `DEMO_START` を送信しない
 3. `startDemo()` が `DEMO_START_DONE` まで待つ
 4. `DEMO_START_DONE` 後に初めてANALYZE可能になる
-5. OperationGeneratorが高レベル操作を生成する
-6. `executeOperation()` がDONEまで待つ
-7. DONE前に次のコマンドを送信しない
-8. `MOVE R` / `MOVE_DONE R` が処理できる
-9. `MOVE R HESITATE`を送信し、同面の`MOVE_DONE R`で完了できる
-10. `THINK` / `THINK_DONE`が処理できる
-11. `ROTATE RL` / `ROTATE_DONE RL` が処理できる
-12. タイムアウト時に次操作を停止する
-13. BUSY / ERRORを処理できる
-14. Give Up時には最後の操作DONEを待つ
-15. Give Up演出後に `DEMO_END` を送信する
-16. `endDemo()` が `DEMO_END_DONE` まで待つ
-17. `DEMO_END_DONE` 後はキューブ未把持相当の `IDLE` となる
-16. STOPでは `DEMO_END` を送信せず、キューブを落下させない
-17. Arduino内部のサーボ工程をReact側が管理していない
+5. `standby`だけにセットアップ中止ボタンを表示し、2段階確認後に`DEMO_END`を送信する
+6. セットアップ中止後は接続を維持して`preDemo`へ戻る
+7. OperationGeneratorが高レベル操作を生成する
+8. `executeOperation()` がDONEまで待つ
+9. DONE前に次のコマンドを送信しない
+10. `MOVE R` / `MOVE_DONE R` が処理できる
+11. `MOVE R HESITATE`を送信し、同面の`MOVE_DONE R`で完了できる
+12. `THINK` / `THINK_DONE`が処理できる
+13. `ROTATE RL` / `ROTATE_DONE RL` が処理できる
+14. タイムアウト時に次操作を停止する
+15. BUSY / ERRORを処理できる
+16. Give Up時には最後の操作DONEを待つ
+17. Give Up演出後に `DEMO_END` を送信する
+18. `DEMO_END_DONE` 後はキューブ未把持相当の `IDLE` となる
+19. STOPでは `DEMO_END` を送信せず、キューブを落下させない
+20. Arduino内部のサーボ工程をReact側が管理していない
 
 ---
 

@@ -4,6 +4,7 @@ export type ShowState =
   | "preDemo"
   | "startingDemo"
   | "standby"
+  | "cancelingDemo"
   | "analyzing"
   | "analysisComplete"
   | "executing"

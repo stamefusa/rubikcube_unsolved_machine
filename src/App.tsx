@@ -33,6 +33,7 @@ export default function App() {
       onConnect={() => void controller.connect()}
       onStartDemo={() => void controller.startDemo()}
       onAnalyze={() => controller.analyze()}
+      onCancelDemo={() => void controller.cancelDemo()}
     />
   );
 }
