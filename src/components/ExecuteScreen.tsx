@@ -5,7 +5,11 @@ import { showConfig } from "../config/showConfig";
 interface Props { state: ShowState; moveCount: number; estimatedMoves: number }
 
 function statusFor(state: ShowState, moveCount: number, estimated: number) {
-  if (state === "desperate") return moveCount > 30 ? "RECOVERY ATTEMPT" : "SOLUTION DEVIATION DETECTED";
+  if (state === "desperate") {
+    return moveCount > showConfig.maxOperations - 3
+      ? "RECOVERY ATTEMPT"
+      : "SOLUTION DEVIATION DETECTED";
+  }
   if (state === "confused") return moveCount > estimated ? "RECALCULATING OPTIMAL PATH" : "ADAPTIVE PATH CORRECTION";
   return "EXECUTING OPTIMAL SOLUTION";
 }

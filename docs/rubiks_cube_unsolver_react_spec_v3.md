@@ -208,6 +208,7 @@ type ShowState =
   | "desperate"
   | "giveUp"
   | "endingDemo"
+  | "releaseComplete"
   | "error";
 ```
 
@@ -226,6 +227,13 @@ Arduinoは `IDLE_RELEASED`。
 Arduinoは `HOLD_ALL / READY` で、ANALYZEを開始できる。
 
 キューブ位置が不適切な場合に限り、画面内の2段階確認から`DEMO_END`を送り、把持解除後に`preDemo`へ戻ることができる。
+
+### `releaseComplete`
+
+Give Up後の `DEMO_END_DONE` を受信し、Arduinoが `IDLE_RELEASED` になった状態。
+
+失敗結果と操作回数を表示したまま、ユーザーが `RETURN TO DEMO START` を押すまで画面を維持する。
+ボタン押下ではシリアル命令を送信せず、接続を維持して `preDemo` へ戻る。
 
 ---
 
@@ -281,6 +289,12 @@ Arduinoが4面すべてRETRACT
 DEMO_END_DONE
   ↓
 Arduino: IDLE_RELEASED
+  ↓
+FAILED / CUBE RELEASED
+  ↓
+ユーザーが [ RETURN TO DEMO START ] を押す
+  ↓
+PRE-DEMO
 ```
 
 デモはユーザーの明示的な `START DEMO` 操作なしに開始してはならない。
@@ -304,7 +318,7 @@ Fake Analyzerの基本仕様は従来通りとする。
 - HUD
 - `OPTIMAL SOLUTION FOUND`
 - `CONFIDENCE 99.97%`
-- Estimated Moves 15〜25程度
+- Estimated Moves 8〜12程度
 
 Fake AnalyzerとOperationGeneratorの間に技術的な関連性を持たせない。
 
@@ -653,6 +667,8 @@ await cubeController.endDemo();
 を実行する。
 
 `DEMO_END_DONE` を受信した時点でキューブは把持されておらず、下へ落下済みであることを前提とする。
+Give Upフローでは失敗結果画面を維持し、ユーザーが明示的に戻る操作を行った後に `preDemo` へ遷移する。
+セットアップ中止フローは従来通り、`DEMO_END_DONE` 後に自動で `preDemo` へ戻る。
 
 ---
 
@@ -753,6 +769,7 @@ Promise resolve
 ### 迷い・思考演出
 
 `MOVE <FACE> HESITATE`は約1.5秒、`THINK`は約1秒のトランザクションとして再現し、それぞれ対応するSTART/DONE後にPromiseをresolveする。
+HESITATEの完了後は現在の演出をさらに1秒間保持し、その待機が終わってから次の操作を開始する。
 
 ### `endDemo()`
 
@@ -1013,22 +1030,23 @@ export const showConfig = {
   analyzerDurationMs: 7000,
 
   estimatedMoves: {
-    min: 15,
-    max: 25,
+    min: 8,
+    max: 12,
   },
 
-  maxOperations: 35,
+  maxOperations: 18,
 
   operationTimeoutMs: 15000,
 
   wholeRotationProbability: 0.1,
   faceHesitationProbability: 0.1,
+  faceHesitationEndPauseMs: 1000,
   thinkingProbability: 0.1,
 
   phases: {
-    confusedStart: 7,
-    troubledStart: 15,
-    desperateStart: 25,
+    confusedStart: 6,
+    troubledStart: 10,
+    desperateStart: 13,
   },
 
   audioProbability: {
@@ -1082,7 +1100,8 @@ export const showConfig = {
 [SERIAL] > DEMO_END
 [SERIAL] < DEMO_END_START
 [SERIAL] < DEMO_END_DONE
-[SHOW] cube released
+[SHOW] state=releaseComplete
+[SHOW] state=preDemo  // RETURN TO DEMO START押下後
 ```
 
 ---
@@ -1108,8 +1127,10 @@ export const showConfig = {
 16. Give Up時には最後の操作DONEを待つ
 17. Give Up演出後に `DEMO_END` を送信する
 18. `DEMO_END_DONE` 後はキューブ未把持相当の `IDLE` となる
-19. STOPでは `DEMO_END` を送信せず、キューブを落下させない
-20. Arduino内部のサーボ工程をReact側が管理していない
+19. Give Up後は`releaseComplete`を維持し、ユーザー操作でのみ`preDemo`へ戻る
+20. `RETURN TO DEMO START`では追加のシリアル命令を送信しない
+21. STOPでは `DEMO_END` を送信せず、キューブを落下させない
+22. Arduino内部のサーボ工程をReact側が管理していない
 
 ---
 
@@ -1148,6 +1169,8 @@ GIVE UP
 DEMO_END
     ↓
 IDLE / キューブ未把持・落下済み
+    ↓ ユーザー RETURN TO DEMO START
+PRE-DEMO
 ```
 
 通常操作では、

@@ -9,6 +9,8 @@ export class ShowController {
   private snapshot: ShowSnapshot;
   private listeners = new Set<() => void>();
   private analyzerTimer: number | null = null;
+  private pacingTimer: number | null = null;
+  private pacingResolve: (() => void) | null = null;
   private session = 0;
   private handlingError = false;
   private connecting = false;
@@ -183,6 +185,22 @@ export class ShowController {
     }
   }
 
+  returnToStart() {
+    if (this.snapshot.state !== "releaseComplete") return;
+    this.session += 1;
+    this.clearTimers();
+    this.audio.stop();
+    this.operations.reset();
+    this.patch({
+      state: "preDemo",
+      moveCount: 0,
+      currentOperation: null,
+      error: null,
+      connected: this.cube.isConnected(),
+      recovering: false,
+    });
+  }
+
   dispose() {
     this.session += 1;
     this.clearTimers();
@@ -207,6 +225,11 @@ export class ShowController {
       }
       if (run !== this.session) return;
 
+      if (operation.type === "faceHesitation") {
+        await this.waitForPacing(showConfig.faceHesitationEndPauseMs);
+        if (run !== this.session) return;
+      }
+
       this.patch({ moveCount: operationNumber });
       console.info(`[OPERATION] completed count=${operationNumber}`);
       this.audio.maybePlay(operationNumber, this.snapshot.estimatedMoves);
@@ -228,8 +251,7 @@ export class ShowController {
       if (run !== this.session) return;
       this.operations.reset();
       this.patch({
-        state: "preDemo",
-        moveCount: 0,
+        state: "releaseComplete",
         currentOperation: null,
         error: null,
         connected: this.cube.isConnected(),
@@ -283,8 +305,24 @@ export class ShowController {
   }
 
   private clearTimers() {
-    if (this.analyzerTimer) clearTimeout(this.analyzerTimer);
+    if (this.analyzerTimer !== null) clearTimeout(this.analyzerTimer);
     this.analyzerTimer = null;
+    if (this.pacingTimer !== null) clearTimeout(this.pacingTimer);
+    this.pacingTimer = null;
+    const resolvePacing = this.pacingResolve;
+    this.pacingResolve = null;
+    resolvePacing?.();
+  }
+
+  private waitForPacing(delayMs: number) {
+    return new Promise<void>((resolve) => {
+      this.pacingResolve = resolve;
+      this.pacingTimer = window.setTimeout(() => {
+        this.pacingTimer = null;
+        this.pacingResolve = null;
+        resolve();
+      }, delayMs);
+    });
   }
 
   private message(error: unknown) {

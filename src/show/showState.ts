@@ -12,6 +12,7 @@ export type ShowState =
   | "desperate"
   | "giveUp"
   | "endingDemo"
+  | "releaseComplete"
   | "error";
 
 export interface ShowSnapshot {
