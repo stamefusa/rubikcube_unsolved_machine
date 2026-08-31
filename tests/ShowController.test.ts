@@ -41,14 +41,16 @@ const generator = {
   reset: () => undefined,
 };
 const audio = {
-  maybePlay: () => undefined,
-  play: async () => undefined,
-  stop: () => undefined,
+  maybePlay: vi.fn(),
+  playPhase: vi.fn(async () => undefined),
+  resetPlaylist: vi.fn(),
+  stop: vi.fn(),
 };
 
 describe("ShowController", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.clearAllMocks();
     vi.stubGlobal("window", globalThis);
     vi.spyOn(console, "info").mockImplementation(() => undefined);
   });
@@ -66,6 +68,7 @@ describe("ShowController", () => {
     expect(cube.commands).toEqual([]);
 
     await show.startDemo();
+    expect(audio.resetPlaylist).toHaveBeenCalledOnce();
     expect(cube.commands).toEqual(["DEMO_START"]);
     expect(show.getSnapshot().state).toBe("standby");
   });
@@ -76,9 +79,15 @@ describe("ShowController", () => {
     await show.startDemo();
     show.analyze();
     await vi.advanceTimersByTimeAsync(showConfig.analyzerDurationMs);
+    const estimatedMoves = show.getSnapshot().estimatedMoves;
     await show.execute();
 
     expect(cube.operations).toHaveLength(showConfig.maxOperations);
+    expect(audio.maybePlay).toHaveBeenCalledTimes(showConfig.maxOperations);
+    expect(audio.maybePlay).toHaveBeenNthCalledWith(1, 1, estimatedMoves);
+    expect(audio.maybePlay).toHaveBeenLastCalledWith(showConfig.maxOperations, estimatedMoves);
+    expect(audio.playPhase).toHaveBeenCalledOnce();
+    expect(audio.playPhase).toHaveBeenCalledWith(4);
     expect(cube.commands.at(-1)).toBe("DEMO_END");
     expect(show.getSnapshot().state).toBe("preDemo");
     expect(cube.status).toBe("idle");
@@ -120,5 +129,6 @@ describe("ShowController", () => {
     expect(show.getSnapshot().state).toBe("error");
     expect(cube.commands).toContain("STOP");
     expect(cube.commands).not.toContain("DEMO_END");
+    expect(audio.playPhase).not.toHaveBeenCalled();
   });
 });

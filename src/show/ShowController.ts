@@ -16,7 +16,7 @@ export class ShowController {
   constructor(
     private cube: CubeController,
     private operations: Pick<OperationGenerator, "nextOperation" | "reset">,
-    private audio: Pick<AudioManager, "maybePlay" | "play" | "stop">,
+    private audio: Pick<AudioManager, "maybePlay" | "playPhase" | "resetPlaylist" | "stop">,
   ) {
     this.snapshot = {
       state: "preDemo",
@@ -70,6 +70,7 @@ export class ShowController {
   async startDemo() {
     if (this.snapshot.state !== "preDemo" || !this.cube.isConnected()) return;
     const run = ++this.session;
+    this.audio.resetPlaylist();
     this.operations.reset();
     this.patch({
       state: "startingDemo",
@@ -208,7 +209,7 @@ export class ShowController {
 
       this.patch({ moveCount: operationNumber });
       console.info(`[OPERATION] completed count=${operationNumber}`);
-      this.audio.maybePlay(operationNumber);
+      this.audio.maybePlay(operationNumber, this.snapshot.estimatedMoves);
     }
 
     if (run === this.session) await this.giveUp(run);
@@ -218,7 +219,7 @@ export class ShowController {
     this.clearTimers();
     this.patch({ state: "giveUp", currentOperation: null });
     this.audio.stop();
-    await this.audio.play("murida");
+    await this.audio.playPhase(4);
     if (run !== this.session) return;
 
     this.setState("endingDemo");

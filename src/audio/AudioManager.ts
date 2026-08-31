@@ -1,24 +1,39 @@
 import { showConfig } from "../config/showConfig";
-import { audioFiles, type AudioCue } from "./audioConfig";
+import {
+  audioFilesByPhase,
+  audioPhaseForOperation,
+  type AudioPhase,
+} from "./audioConfig";
 
 export class AudioManager {
   private current: HTMLAudioElement | null = null;
   private finishCurrent: (() => void) | null = null;
+  private remainingByPhase: Record<AudioPhase, string[]> = { 1: [], 2: [], 3: [], 4: [] };
+  private lastPlayedByPhase: Partial<Record<AudioPhase, string>> = {};
 
-  maybePlay(moveCount: number) {
-    let probability: number = showConfig.audioProbability.executing;
-    let options: AudioCue[] = [];
-    if (moveCount >= 31) { probability = showConfig.audioProbability.desperate; options = ["murida"]; }
-    else if (moveCount >= 21) { probability = showConfig.audioProbability.desperate; options = ["nandeda", "konnahazudeha"]; }
-    else if (moveCount >= 11) { probability = showConfig.audioProbability.troubled; options = ["tokenai", "okashii"]; }
-    else if (moveCount >= 6) { probability = showConfig.audioProbability.confused; options = ["are"]; }
-    if (options.length && Math.random() < probability) void this.play(options[Math.floor(Math.random() * options.length)]);
+  resetPlaylist() {
+    this.remainingByPhase = { 1: [], 2: [], 3: [], 4: [] };
+    this.lastPlayedByPhase = {};
   }
 
-  async play(cue: AudioCue) {
+  maybePlay(moveCount: number, estimatedMoves: number) {
+    const phase = audioPhaseForOperation(moveCount, estimatedMoves);
+    const probability = showConfig.audioProbability[`phase${phase}`];
+    if (Math.random() < probability) void this.playPhase(phase);
+  }
+
+  async playPhase(phase: AudioPhase) {
     if (this.current && !this.current.ended) return;
-    console.info(`[AUDIO] play ${cue}`);
-    const audio = new Audio(audioFiles[cue]);
+
+    const options = audioFilesByPhase[phase];
+    if (!options.length) {
+      console.warn(`[AUDIO] no files for phase ${phase}`);
+      return;
+    }
+
+    const source = this.nextSource(phase, options);
+    console.info(`[AUDIO] play phase=${phase} source=${source}`);
+    const audio = new Audio(source);
     this.current = audio;
     const completed = new Promise<void>((resolve) => {
       const finish = () => {
@@ -34,7 +49,7 @@ export class AudioManager {
       await audio.play();
       await completed;
     } catch (error) {
-      console.warn(`[AUDIO] unavailable: ${cue}`, error);
+      console.warn(`[AUDIO] unavailable: phase ${phase}`, error);
       this.finishCurrent?.();
     }
   }
@@ -44,5 +59,30 @@ export class AudioManager {
     this.current.pause();
     this.current.currentTime = 0;
     this.finishCurrent?.();
+  }
+
+  private nextSource(phase: AudioPhase, options: string[]) {
+    let remaining = this.remainingByPhase[phase];
+    if (!remaining.length) {
+      remaining = this.shuffle([...options]);
+      const lastPlayed = this.lastPlayedByPhase[phase];
+      if (remaining.length > 1 && remaining[0] === lastPlayed) {
+        const swapIndex = 1 + Math.floor(Math.random() * (remaining.length - 1));
+        [remaining[0], remaining[swapIndex]] = [remaining[swapIndex], remaining[0]];
+      }
+      this.remainingByPhase[phase] = remaining;
+    }
+
+    const source = remaining.shift()!;
+    this.lastPlayedByPhase[phase] = source;
+    return source;
+  }
+
+  private shuffle(items: string[]) {
+    for (let index = items.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.floor(Math.random() * (index + 1));
+      [items[index], items[swapIndex]] = [items[swapIndex], items[index]];
+    }
+    return items;
   }
 }

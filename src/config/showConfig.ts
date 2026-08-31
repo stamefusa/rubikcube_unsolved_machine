@@ -19,5 +19,5 @@ export const showConfig = {
     wholeRotationDurationMs: 1500,
     endDemoDurationMs: 450,
   },
-  audioProbability: { executing: 0, confused: 0.15, troubled: 0.25, desperate: 0.4 },
+  audioProbability: { phase1: 0.5, phase2: 0.5, phase3: 0.5 },
 } as const;
