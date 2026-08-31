@@ -24,12 +24,21 @@ describe("parseSerialLine", () => {
       type: "ROTATE_START",
       operation: { type: "wholeRotation", axis: "FB" },
     });
+    expect(parseSerialLine("THINK_START")).toEqual({
+      type: "THINK_START",
+      operation: { type: "thinking" },
+    });
+    expect(parseSerialLine("THINK_DONE")).toEqual({
+      type: "THINK_DONE",
+      operation: { type: "thinking" },
+    });
   });
 
   it("rejects legacy and unsupported move formats", () => {
     expect(parseSerialLine("MOVE_DONE R CW").type).toBe("UNKNOWN");
     expect(parseSerialLine("MOVE_DONE U").type).toBe("UNKNOWN");
     expect(parseSerialLine("ROTATE_DONE UD").type).toBe("UNKNOWN");
+    expect(parseSerialLine("THINK_DONE EXTRA").type).toBe("UNKNOWN");
   });
 
   it("keeps the complete Arduino error code", () => {

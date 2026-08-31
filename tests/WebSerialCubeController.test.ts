@@ -58,6 +58,8 @@ describe("WebSerialCubeController", () => {
     const port = new FakeSerialPort();
     installSerial(port);
     const controller = new WebSerialCubeController();
+    const onOperationStart = vi.fn();
+    controller.onOperationStart(onOperationStart);
     await controller.connect();
 
     const startDemo = controller.startDemo();
@@ -78,6 +80,22 @@ describe("WebSerialCubeController", () => {
     port.emit("MOVE_DONE R");
     await operation;
     expect(completed).toBe(true);
+
+    const hesitation = controller.executeOperation({ type: "faceHesitation", face: "L" });
+    await flush();
+    expect(port.writes.at(-1)).toBe("MOVE L HESITATE");
+    port.emit("MOVE_START L");
+    port.emit("MOVE_DONE L");
+    await hesitation;
+    expect(onOperationStart).toHaveBeenLastCalledWith({ type: "faceHesitation", face: "L" });
+
+    const thinking = controller.executeOperation({ type: "thinking" });
+    await flush();
+    expect(port.writes.at(-1)).toBe("THINK");
+    port.emit("THINK_START");
+    port.emit("THINK_DONE");
+    await thinking;
+    expect(onOperationStart).toHaveBeenLastCalledWith({ type: "thinking" });
 
     const rotation = controller.executeOperation({ type: "wholeRotation", axis: "FB" });
     await flush();

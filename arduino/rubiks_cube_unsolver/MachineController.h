@@ -19,6 +19,8 @@ class MachineController {
   void invalidCommand();
   void startDemo();
   void startFaceTurn(Face face);
+  void startFaceHesitation(Face face);
+  void startThinking();
   void startWholeRotation(Axis axis);
   void endDemo();
 
@@ -29,6 +31,8 @@ class MachineController {
     NONE,
     DEMO_START,
     FACE_TURN,
+    FACE_HESITATION,
+    THINK,
     WHOLE_ROTATION,
     DEMO_END,
   };
@@ -38,6 +42,12 @@ class MachineController {
     RETRACT_WAIT,
     RESETTING,
     ENGAGE_WAIT,
+  };
+
+  enum class HesitatePhase : uint8_t {
+    OUTWARD,
+    PAUSE,
+    RETURNING,
   };
 
   enum class WholePhase : uint8_t {
@@ -81,6 +91,8 @@ class MachineController {
   void updateBoot(uint32_t now);
   void updateDemoStart(uint32_t now);
   void updateFaceTurn(uint32_t now);
+  void updateFaceHesitation(uint32_t now);
+  void updateThinking(uint32_t now);
   void updateWholeRotation(uint32_t now);
   void updateDemoEnd(uint32_t now);
   void beginStopRecovery(uint32_t now);
@@ -116,6 +128,7 @@ class MachineController {
   MachineState state_;
   Transaction transaction_;
   FacePhase facePhase_;
+  HesitatePhase hesitatePhase_;
   WholePhase wholePhase_;
   StopPhase stopPhase_;
   Motion motion_;
@@ -131,4 +144,3 @@ class MachineController {
   Face nonAxis2_;
   Face recoveryFace_;
 };
-

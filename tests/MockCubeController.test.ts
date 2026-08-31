@@ -38,6 +38,20 @@ describe("MockCubeController", () => {
     expect(completed).toBe(true);
     expect(await controller.getStatus()).toBe("ready");
 
+    const hesitation = controller.executeOperation({ type: "faceHesitation", face: "F" });
+    await vi.advanceTimersByTimeAsync(
+      showConfig.mock.startDelayMs + showConfig.mock.faceHesitationDurationMs,
+    );
+    await hesitation;
+    expect(await controller.getStatus()).toBe("ready");
+
+    const thinking = controller.executeOperation({ type: "thinking" });
+    await vi.advanceTimersByTimeAsync(
+      showConfig.mock.startDelayMs + showConfig.mock.thinkingDurationMs,
+    );
+    await thinking;
+    expect(await controller.getStatus()).toBe("ready");
+
     const endDemo = controller.endDemo();
     await vi.advanceTimersByTimeAsync(showConfig.mock.startDelayMs + showConfig.mock.endDemoDurationMs);
     await endDemo;

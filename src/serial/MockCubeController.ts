@@ -37,9 +37,7 @@ export class MockCubeController implements CubeController {
 
   async executeOperation(operation: CubeOperation) {
     this.requireStatus("ready");
-    const duration = operation.type === "wholeRotation"
-      ? showConfig.mock.wholeRotationDurationMs
-      : showConfig.mock.faceTurnDurationMs;
+    const duration = this.operationDuration(operation);
     await this.runTransaction("operation", operationCommand(operation), operation, duration, "ready");
   }
 
@@ -105,17 +103,28 @@ export class MockCubeController implements CubeController {
   private startMessage(kind: MockTransaction, operation?: CubeOperation) {
     if (kind === "startDemo") return "DEMO_START_START";
     if (kind === "endDemo") return "DEMO_END_START";
-    return operation?.type === "faceTurn"
-      ? `MOVE_START ${operation.face}`
-      : `ROTATE_START ${operation?.axis}`;
+    if (operation?.type === "faceTurn" || operation?.type === "faceHesitation") {
+      return `MOVE_START ${operation.face}`;
+    }
+    if (operation?.type === "thinking") return "THINK_START";
+    return `ROTATE_START ${operation?.axis}`;
   }
 
   private doneMessage(kind: MockTransaction, operation?: CubeOperation) {
     if (kind === "startDemo") return "DEMO_START_DONE";
     if (kind === "endDemo") return "DEMO_END_DONE";
-    return operation?.type === "faceTurn"
-      ? `MOVE_DONE ${operation.face}`
-      : `ROTATE_DONE ${operation?.axis}`;
+    if (operation?.type === "faceTurn" || operation?.type === "faceHesitation") {
+      return `MOVE_DONE ${operation.face}`;
+    }
+    if (operation?.type === "thinking") return "THINK_DONE";
+    return `ROTATE_DONE ${operation?.axis}`;
+  }
+
+  private operationDuration(operation: CubeOperation) {
+    if (operation.type === "wholeRotation") return showConfig.mock.wholeRotationDurationMs;
+    if (operation.type === "faceHesitation") return showConfig.mock.faceHesitationDurationMs;
+    if (operation.type === "thinking") return showConfig.mock.thinkingDurationMs;
+    return showConfig.mock.faceTurnDurationMs;
   }
 
   private schedule(callback: () => void, delayMs: number) {

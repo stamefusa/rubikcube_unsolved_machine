@@ -8,6 +8,7 @@ MachineController::MachineController(ServoController& servos, Print& output)
       state_(MachineState::BOOTING),
       transaction_(Transaction::NONE),
       facePhase_(FacePhase::TURNING),
+      hesitatePhase_(HesitatePhase::OUTWARD),
       wholePhase_(WholePhase::PRELOAD_RETRACT_WAIT),
       stopPhase_(StopPhase::FIND_RETRACTED_ROTATION),
       motion_{false, 0, {Face::R, Face::L}, {0, 0}, {0, 0}, 0, 0, 0},
@@ -38,8 +39,12 @@ void MachineController::begin(uint32_t now) {
 void MachineController::update(uint32_t now) {
   if (stopRequested_ && state_ != MachineState::STOPPING) {
     if (transaction_ == Transaction::FACE_TURN ||
+        transaction_ == Transaction::FACE_HESITATION ||
         transaction_ == Transaction::WHOLE_ROTATION) {
       beginStopRecovery(now);
+    } else if (transaction_ == Transaction::THINK) {
+      stopRequested_ = false;
+      finishStoppedReady();
     } else if (transaction_ == Transaction::DEMO_START ||
                transaction_ == Transaction::DEMO_END) {
       // Lifecycle transitions cannot be left half-complete. Finish them but
@@ -61,6 +66,12 @@ void MachineController::update(uint32_t now) {
     case MachineState::FACE_TURNING:
     case MachineState::FACE_RESETTING:
       updateFaceTurn(now);
+      break;
+    case MachineState::FACE_HESITATING:
+      updateFaceHesitation(now);
+      break;
+    case MachineState::THINKING:
+      updateThinking(now);
       break;
     case MachineState::PREPARING_WHOLE_ROTATION:
     case MachineState::HOLD_AXIS_RL:
@@ -165,6 +176,44 @@ void MachineController::startFaceTurn(Face face) {
   if (!startSingleMotion(face, Config::LOGICAL_90, Config::FACE_TURN_MS, millis())) {
     enterError(ErrorCode::INTERNAL_STATE);
   }
+}
+
+void MachineController::startFaceHesitation(Face face) {
+  if (!commandCanStart(MachineState::HOLD_ALL)) {
+    return;
+  }
+  if (!validFace(face) || !SafetyGuard::readyInvariant(servos_)) {
+    sendError(validFace(face) ? ErrorCode::INTERNAL_STATE : ErrorCode::INVALID_COMMAND);
+    return;
+  }
+
+  targetFace_ = face;
+  transaction_ = Transaction::FACE_HESITATION;
+  state_ = MachineState::FACE_HESITATING;
+  hesitatePhase_ = HesitatePhase::OUTWARD;
+  suppressDone_ = false;
+  sendMoveMessage(F("MOVE_START"), face);
+
+  const uint16_t midpoint = Config::LOGICAL_90 / 2;
+  if (!startSingleMotion(face, midpoint, Config::HESITATE_MOTION_MS, millis())) {
+    enterError(ErrorCode::INTERNAL_STATE);
+  }
+}
+
+void MachineController::startThinking() {
+  if (!commandCanStart(MachineState::HOLD_ALL)) {
+    return;
+  }
+  if (!SafetyGuard::readyInvariant(servos_)) {
+    enterError(ErrorCode::INTERNAL_STATE);
+    return;
+  }
+
+  transaction_ = Transaction::THINK;
+  state_ = MachineState::THINKING;
+  suppressDone_ = false;
+  output_.println(F("THINK_START"));
+  setDeadline(millis(), Config::THINK_MS);
 }
 
 void MachineController::startWholeRotation(Axis axis) {
@@ -290,6 +339,44 @@ void MachineController::updateFaceTurn(uint32_t now) {
   }
 }
 
+void MachineController::updateFaceHesitation(uint32_t now) {
+  switch (hesitatePhase_) {
+    case HesitatePhase::OUTWARD:
+      if (!updateMotion(now)) {
+        return;
+      }
+      hesitatePhase_ = HesitatePhase::PAUSE;
+      setDeadline(now, Config::HESITATE_PAUSE_MS);
+      break;
+
+    case HesitatePhase::PAUSE:
+      if (!deadlineReached(now)) {
+        return;
+      }
+      if (!startSingleMotion(targetFace_, Config::LOGICAL_0,
+                             Config::HESITATE_MOTION_MS, now)) {
+        enterError(ErrorCode::INTERNAL_STATE);
+        return;
+      }
+      hesitatePhase_ = HesitatePhase::RETURNING;
+      break;
+
+    case HesitatePhase::RETURNING:
+      if (!updateMotion(now)) {
+        return;
+      }
+      finishReady();
+      break;
+  }
+}
+
+void MachineController::updateThinking(uint32_t now) {
+  if (!deadlineReached(now)) {
+    return;
+  }
+  finishReady();
+}
+
 void MachineController::updateWholeRotation(uint32_t now) {
   switch (wholePhase_) {
     case WholePhase::PRELOAD_RETRACT_WAIT:
@@ -404,7 +491,8 @@ void MachineController::beginStopRecovery(uint32_t now) {
   cancelMotion();
   state_ = MachineState::STOPPING;
 
-  if (transaction_ == Transaction::FACE_TURN &&
+  if ((transaction_ == Transaction::FACE_TURN ||
+       transaction_ == Transaction::FACE_HESITATION) &&
       servos_.grip(targetFace_) == GripState::ENGAGED &&
       servos_.rotation(targetFace_) != Config::LOGICAL_0) {
     if (!startSingleMotion(targetFace_, Config::LOGICAL_0, Config::FREE_ROTATION_MS, now)) {
@@ -671,7 +759,11 @@ void MachineController::finishReady() {
         output_.println(F("DEMO_START_DONE"));
         break;
       case Transaction::FACE_TURN:
+      case Transaction::FACE_HESITATION:
         sendMoveMessage(F("MOVE_DONE"), targetFace_);
+        break;
+      case Transaction::THINK:
+        output_.println(F("THINK_DONE"));
         break;
       case Transaction::WHOLE_ROTATION:
         sendRotateMessage(F("ROTATE_DONE"), targetAxis_);

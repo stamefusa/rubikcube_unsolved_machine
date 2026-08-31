@@ -25,6 +25,9 @@ constexpr uint16_t SERVO_MAX_US = 2500;
 
 constexpr uint16_t MOTION_UPDATE_MS = 20;
 constexpr uint16_t FACE_TURN_MS = 1000;
+constexpr uint16_t HESITATE_MOTION_MS = 500;
+constexpr uint16_t HESITATE_PAUSE_MS = 500;
+constexpr uint16_t THINK_MS = 1000;
 constexpr uint16_t FREE_ROTATION_MS = 800;
 constexpr uint16_t WHOLE_ROTATION_MS = 1200;
 constexpr uint16_t SLIDE_SETTLE_MS = 600;

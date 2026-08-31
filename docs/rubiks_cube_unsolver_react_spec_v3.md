@@ -84,6 +84,8 @@ MOVE R
 MOVE L
 MOVE F
 MOVE B
+MOVE <FACE> HESITATE
+THINK
 
 ROTATE RL
 ROTATE FB
@@ -320,6 +322,13 @@ type CubeOperation =
       face: CubeFace;
     }
   | {
+      type: "faceHesitation";
+      face: CubeFace;
+    }
+  | {
+      type: "thinking";
+    }
+  | {
       type: "wholeRotation";
       axis: CubeAxis;
     };
@@ -366,16 +375,16 @@ MOVE F
 MOVE B
 ```
 
-必要に応じて演出・姿勢変化として、
+演出・姿勢変化として、
 
 ```text
+MOVE <FACE> HESITATE
+THINK
 ROTATE RL
 ROTATE FB
 ```
 
-も混ぜてよい。
-
-全体回転を混ぜる確率はConfigで変更可能にする。
+も混ぜる。初期確率は通常MOVE 70%、各演出・全体回転を10%ずつとし、各確率はConfigで変更可能にする。
 
 ---
 
@@ -395,6 +404,8 @@ MOVE R
 MOVE L
 MOVE F
 MOVE B
+MOVE <FACE> HESITATE
+THINK
 
 ROTATE RL
 ROTATE FB
@@ -417,6 +428,9 @@ DEMO_START_DONE
 
 MOVE_START R
 MOVE_DONE R
+
+THINK_START
+THINK_DONE
 
 ROTATE_START RL
 ROTATE_DONE RL
@@ -723,6 +737,10 @@ ROTATE_DONE相当
 Promise resolve
 ```
 
+### 迷い・思考演出
+
+`MOVE <FACE> HESITATE`は約1.5秒、`THINK`は約1秒のトランザクションとして再現し、それぞれ対応するSTART/DONE後にPromiseをresolveする。
+
 ### `endDemo()`
 
 ```text
@@ -767,6 +785,8 @@ PC側のカウントはArduino内部サーボ工程数ではなく、高レベ�
 
 ```text
 MOVE R     → 1 operation
+MOVE R HESITATE → 1 operation
+THINK      → 1 operation
 ROTATE RL  → 1 operation
 ```
 
@@ -817,46 +837,49 @@ operation done
 
 ## 25. Arduino内部の迷い演出
 
-Arduino側で、
-
-```text
-0° → 30°
-30° → 20°
-20° → 90°
-```
-
-などの機械的な迷い演出を実装しても、PCとのプロトコルは変更しない。
-
-PCからは従来通り、
-
-```text
-MOVE R
-```
-
-だけ送信する。
-
-完了時は、
-
-```text
-MOVE_DONE R
-```
-
-を受信する。
-
-将来PCから演出パターンを指定したくなった場合のみ、
+Arduinoは任意指定の迷い演出として、次のコマンドを受け付ける。
 
 ```text
 MOVE R HESITATE
 ```
 
-などの拡張を検討する。初期仕様には含めない。
+対象面を把持したまま、Arduino内部で次の動作を完結させる。
+
+```text
+0° → 45°: 500ms
+45°で待機: 500ms
+45° → 0°: 500ms
+```
+
+完了応答は通常MOVEと同じ形式とする。
+
+```text
+MOVE_START R
+MOVE_DONE R
+READY
+```
+
+Reactは`faceHesitation`操作を`MOVE <FACE> HESITATE`として送信する。Arduinoからの応答は通常MOVEと同形のため、送信中の期待操作と面を照合して完了させる。
+
+### 25.1 Arduino内部の静止思考演出
+
+Arduinoは任意指定の静止演出として`THINK`を受け付け、4面把持・全回転0°を維持したまま1秒間サーボへ新しい指令を送らない。
+
+```text
+THINK
+THINK_START
+THINK_DONE
+READY
+```
+
+Reactは`thinking`操作を`THINK`として送信し、`THINK_START` / `THINK_DONE`を解析する。THINKはMOVE数と最大操作数へ1操作として加算する。
 
 ---
 
 ## 26. Give Up
 
 
-最大操作数へ到達したら、PCは新しい `MOVE` / `ROTATE` を送信しない。
+最大操作数へ到達したら、PCは新しい `MOVE` / `THINK` / `ROTATE` を送信しない。
 
 最後のArduino操作の `*_DONE` を必ず確認する。
 
@@ -986,6 +1009,8 @@ export const showConfig = {
   operationTimeoutMs: 15000,
 
   wholeRotationProbability: 0.1,
+  faceHesitationProbability: 0.1,
+  thinkingProbability: 0.1,
 
   phases: {
     confusedStart: 7,
@@ -1061,13 +1086,15 @@ export const showConfig = {
 6. `executeOperation()` がDONEまで待つ
 7. DONE前に次のコマンドを送信しない
 8. `MOVE R` / `MOVE_DONE R` が処理できる
-9. `ROTATE RL` / `ROTATE_DONE RL` が処理できる
-10. タイムアウト時に次操作を停止する
-11. BUSY / ERRORを処理できる
-12. Give Up時には最後の操作DONEを待つ
-13. Give Up演出後に `DEMO_END` を送信する
-14. `endDemo()` が `DEMO_END_DONE` まで待つ
-15. `DEMO_END_DONE` 後はキューブ未把持相当の `IDLE` となる
+9. `MOVE R HESITATE`を送信し、同面の`MOVE_DONE R`で完了できる
+10. `THINK` / `THINK_DONE`が処理できる
+11. `ROTATE RL` / `ROTATE_DONE RL` が処理できる
+12. タイムアウト時に次操作を停止する
+13. BUSY / ERRORを処理できる
+14. Give Up時には最後の操作DONEを待つ
+15. Give Up演出後に `DEMO_END` を送信する
+16. `endDemo()` が `DEMO_END_DONE` まで待つ
+17. `DEMO_END_DONE` 後はキューブ未把持相当の `IDLE` となる
 16. STOPでは `DEMO_END` を送信せず、キューブを落下させない
 17. Arduino内部のサーボ工程をReact側が管理していない
 
@@ -1143,4 +1170,3 @@ ROTATE_DONE RL
 **シリアル通信の単位を「サーボ操作」ではなく、「デモライフサイクルまたは安全に完結する機械操作トランザクション」とする。**
 
 ---
-

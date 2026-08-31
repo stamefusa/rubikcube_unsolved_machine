@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { showConfig } from "../src/config/showConfig";
-import type { CubeOperation } from "../src/operations/CubeOperation";
+import { operationCommand, type CubeOperation } from "../src/operations/CubeOperation";
 import type { CubeController, CubeControllerStatus } from "../src/serial/CubeController";
 import { ShowController } from "../src/show/ShowController";
 
@@ -19,7 +19,7 @@ class FakeCubeController implements CubeController {
   isBusy() { return false; }
   async startDemo() { this.commands.push("DEMO_START"); this.status = "ready"; }
   async executeOperation(operation: CubeOperation) {
-    this.commands.push(operation.type === "faceTurn" ? `MOVE ${operation.face}` : `ROTATE ${operation.axis}`);
+    this.commands.push(operationCommand(operation));
     this.startCallback(operation);
     if (this.operationError) throw this.operationError;
     this.operations.push(operation);

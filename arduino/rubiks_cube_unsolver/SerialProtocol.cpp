@@ -42,6 +42,7 @@ void SerialProtocol::processLine() {
   }
   char* argument = strtok_r(nullptr, " \t", &save);
   char* extra = strtok_r(nullptr, " \t", &save);
+  char* trailing = strtok_r(nullptr, " \t", &save);
 
   if (strcmp(command, "PING") == 0 && argument == nullptr) {
     machine_.ping();
@@ -63,12 +64,22 @@ void SerialProtocol::processLine() {
     machine_.endDemo();
     return;
   }
+  if (strcmp(command, "THINK") == 0 && argument == nullptr) {
+    machine_.startThinking();
+    return;
+  }
 
   Face face = Face::COUNT;
-  if (strcmp(command, "MOVE") == 0 && argument != nullptr && extra == nullptr &&
+  if (strcmp(command, "MOVE") == 0 && argument != nullptr && trailing == nullptr &&
       parseFace(argument, face)) {
-    machine_.startFaceTurn(face);
-    return;
+    if (extra == nullptr) {
+      machine_.startFaceTurn(face);
+      return;
+    }
+    if (strcmp(extra, "HESITATE") == 0) {
+      machine_.startFaceHesitation(face);
+      return;
+    }
   }
 
   Axis axis = Axis::RL;
@@ -105,4 +116,3 @@ bool SerialProtocol::parseAxis(const char* token, Axis& axis) const {
   }
   return false;
 }
-

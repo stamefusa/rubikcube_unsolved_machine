@@ -27,6 +27,8 @@ enum class MachineState : uint8_t {
   HOLD_ALL,
   FACE_TURNING,
   FACE_RESETTING,
+  FACE_HESITATING,
+  THINKING,
   PREPARING_WHOLE_ROTATION,
   HOLD_AXIS_RL,
   HOLD_AXIS_FB,
@@ -53,4 +55,3 @@ inline char faceName(Face face) {
   static const char NAMES[] = {'R', 'L', 'F', 'B'};
   return NAMES[faceIndex(face)];
 }
-

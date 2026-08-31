@@ -208,12 +208,14 @@ B: ENGAGED / rotation = 0°
 ## 7. キューブ操作の種類
 
 
-Arduinoが扱う高レベル操作は4種類。
+Arduinoが扱う高レベル操作は6種類。
 
 1. デモ開始: `DEMO_START`
 2. 一面だけを90度回転: `MOVE <FACE>`
-3. キューブ全体を90度回転: `ROTATE <AXIS>`
-4. デモ終了: `DEMO_END`
+3. 一面を45度まで往復させる迷い演出: `MOVE <FACE> HESITATE`
+4. 1秒間静止する思考演出: `THINK`
+5. キューブ全体を90度回転: `ROTATE <AXIS>`
+6. デモ終了: `DEMO_END`
 
 ### 7.1 `DEMO_START`
 
@@ -298,23 +300,40 @@ MOVE_DONE
 
 ---
 
-## 9. 演出用の途中往復
+## 9. 演出用の迷い往復
 
-一面回転中、90°へ到達するまでに小さな往復を入れてよい。
-
-例:
+`MOVE <FACE> HESITATE`はキューブの論理状態を変更しない演出専用操作とする。対象面を含む4面を把持したまま、次の順序で動作する。
 
 ```text
-0° → 25°
-25° → 15°
-15° → 40°
-40° → 30°
-30° → 90°
+0° → 45°: 500ms
+45°で待機: 500ms
+45° → 0°: 500ms
 ```
 
-最終的に90°へ到達すれば一面回転として成立する。
+45°の指令値は論理90°の半分とし、実際のパルス幅は各面の0°と90°の校正値を線形補間して求める。45°専用のパルス校正値は持たない。
 
-一方、`RETRACT` 後の `90° → 0°` はキューブを動かさないリセット操作であり、演出用往復とは別概念とする。
+正常終了時の通信は通常MOVEと同じ形式とする。
+
+```text
+MOVE_START <FACE>
+MOVE_DONE <FACE>
+READY
+```
+
+STOPされた場合は対象面を0°へ復帰し、`MOVE_DONE`を送らず`READY`へ戻る。
+
+### 9.1 静止思考演出
+
+`THINK`はキューブの論理状態を変更せず、`HOLD_ALL`・全回転0°を保ったまま1秒間静止する演出とする。待機中は回転・スライドサーボへ新しい指令を送らない。
+
+```text
+THINK_START
+1秒間静止
+THINK_DONE
+READY
+```
+
+待機は非ブロッキングで実装し、STATUSには`BUSY`を返す。STOPされた場合は待機を即時終了し、`THINK_DONE`を送らず`READY`へ戻る。
 
 ---
 
@@ -659,6 +678,8 @@ MOVE R
 MOVE L
 MOVE F
 MOVE B
+MOVE <FACE> HESITATE
+THINK
 
 ROTATE RL
 ROTATE FB
@@ -676,7 +697,7 @@ Arduino:
 各コマンドを安全な機構トランザクションとして完結させる
 ```
 
-`MOVE` / `ROTATE` は `HOLD_ALL` から開始して `HOLD_ALL` へ戻る。
+`MOVE` / `THINK` / `ROTATE` は `HOLD_ALL` から開始して `HOLD_ALL` へ戻る。
 
 `DEMO_START` は `IDLE_RELEASED` から `HOLD_ALL` へ遷移する。
 
@@ -701,6 +722,8 @@ MOVE R
 MOVE L
 MOVE F
 MOVE B
+MOVE <FACE> HESITATE
+THINK
 
 ROTATE RL
 ROTATE FB
@@ -723,6 +746,9 @@ DEMO_START_DONE
 
 MOVE_START R
 MOVE_DONE R
+
+THINK_START
+THINK_DONE
 
 ROTATE_START RL
 ROTATE_DONE RL
@@ -769,7 +795,7 @@ MachineState = HOLD_ALL
 全回転サーボ = 0°
 ```
 
-デモ実行中で、新しい `MOVE` / `ROTATE` / `DEMO_END` を受け付けられる。
+デモ実行中で、新しい `MOVE` / `THINK` / `ROTATE` / `DEMO_END` を受け付けられる。
 
 ### BUSY
 
@@ -777,7 +803,7 @@ MachineState = HOLD_ALL
 
 BUSY中に新しい高レベル操作を開始しない。
 
-### MOVE_DONE / ROTATE_DONE
+### MOVE_DONE / THINK_DONE / ROTATE_DONE
 
 対象操作が終了し、`READY` 条件へ復帰したことを意味する。
 
@@ -827,6 +853,44 @@ MOVE R
         Arduino内部で全工程
 
                 MOVE_DONE R
+ <--------------------
+
+        READY
+```
+
+### 迷い演出
+
+```text
+PC                    Arduino
+
+MOVE R HESITATE
+ -------------------->
+
+                MOVE_START R
+ <--------------------
+
+        R: 0° → 45° → 0°
+
+                MOVE_DONE R
+ <--------------------
+
+        READY
+```
+
+### 静止思考演出
+
+```text
+PC                    Arduino
+
+THINK
+ -------------------->
+
+                THINK_START
+ <--------------------
+
+        1秒間サーボ指令なし
+
+                THINK_DONE
  <--------------------
 
         READY
@@ -928,7 +992,8 @@ executeWholeRotation(Axis axis);
 14. SerialProtocol
 15. SafetyGuard
 16. STOP / ERROR_HOLD
-17. 演出用途中往復
+17. 演出用迷い往復
+18. 1秒間の静止思考演出
 
 ---
 
@@ -940,16 +1005,20 @@ executeWholeRotation(Axis axis);
 3. `DEMO_START_DONE` の時点で全回転サーボが論理0°である
 4. `MOVE R` 1コマンドでR面回転からリセット・再把持まで完了する
 5. `MOVE_DONE R` の時点でHOLD_ALLへ戻っている
-6. R/L全体回転前に片側のみ90°へpreloadできる
-7. R/Lを `0→90 / 90→0` で同期回転できる
-8. 全体回転後に4面把持へ復帰できる
-9. 90°側を0°へリセットできる
-10. `ROTATE_DONE RL` の時点で全回転サーボ0° / HOLD_ALLである
-11. F/B軸でも同様に動作する
-12. BUSY中に別操作を開始しない
-13. STOP / エラー時に意図せずキューブを落とさない
-14. `DEMO_END` で4面すべての把持を解除し、キューブを意図的に落下させられる
-15. `DEMO_END_DONE` の時点で `IDLE_RELEASED` に戻っている
+6. `MOVE R HESITATE`でR面が0°から45°へ動き、待機後に0°へ戻る
+7. HESITATE完了時に全回転0° / HOLD_ALLへ戻っている
+8. `THINK`でサーボ状態を変えず1秒間静止し、`THINK_DONE`後にREADYへ戻る
+9. THINK中のSTOPでDONEを送らず即座にREADYへ戻る
+10. R/L全体回転前に片側のみ90°へpreloadできる
+11. R/Lを `0→90 / 90→0` で同期回転できる
+12. 全体回転後に4面把持へ復帰できる
+13. 90°側を0°へリセットできる
+14. `ROTATE_DONE RL` の時点で全回転サーボ0° / HOLD_ALLである
+15. F/B軸でも同様に動作する
+16. BUSY中に別操作を開始しない
+17. STOP / エラー時に意図せずキューブを落とさない
+18. `DEMO_END` で4面すべての把持を解除し、キューブを意図的に落下させられる
+19. `DEMO_END_DONE` の時点で `IDLE_RELEASED` に戻っている
 
 ---
 
@@ -989,4 +1058,3 @@ PCはサーボ操作の途中状態を管理しない。
 **PCは「デモを始める・何を動かす・デモを終える」を指示し、Arduinoは「それをどう安全かつ意図通りに実行するか」に責任を持つ。**
 
 ---
-

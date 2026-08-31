@@ -1,7 +1,7 @@
 import { showConfig } from "../config/showConfig";
 import {
   operationCommand,
-  operationsEqual,
+  operationResponseMatches,
   type CubeOperation,
 } from "../operations/CubeOperation";
 import type { CubeController, CubeControllerStatus } from "./CubeController";
@@ -206,10 +206,12 @@ export class WebSerialCubeController implements CubeController {
         this.completeIf("endDemo", "idle", message);
         break;
       case "MOVE_START":
+      case "THINK_START":
       case "ROTATE_START":
         this.handleOperationStart(message.operation);
         break;
       case "MOVE_DONE":
+      case "THINK_DONE":
       case "ROTATE_DONE":
         this.handleOperationDone(message.operation, message);
         break;
@@ -230,17 +232,17 @@ export class WebSerialCubeController implements CubeController {
   private handleOperationStart(operation: CubeOperation) {
     const expected = this.pending?.expectedOperation;
     if (this.pending?.kind !== "operation" || !expected) return;
-    if (!operationsEqual(expected, operation)) {
+    if (!operationResponseMatches(expected, operation)) {
       this.rejectPending(new Error("OPERATION START MISMATCH"));
       return;
     }
-    this.operationStartCallback(operation);
+    this.operationStartCallback(expected);
   }
 
   private handleOperationDone(operation: CubeOperation, message: SerialMessage) {
     const expected = this.pending?.expectedOperation;
     if (this.pending?.kind !== "operation" || !expected) return;
-    if (!operationsEqual(expected, operation)) {
+    if (!operationResponseMatches(expected, operation)) {
       this.rejectPending(new Error("OPERATION DONE MISMATCH"));
       return;
     }
